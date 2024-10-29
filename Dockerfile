@@ -1,19 +1,28 @@
-FROM alpine:latest as alpine
+# Start from an Alpine-based Rust image for musl support
+FROM rust:alpine AS builder
 
-RUN apk add -U --no-cache ca-certificates
+# Install musl, OpenSSL (with static libraries), and pkg-config
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconfig
 
-# source    - https://github.com/emk/rust-musl-builder/blob/main/Dockerfile
-# dockerhub - https://hub.docker.com/r/ekidd/rust-musl-builder
-FROM ekidd/rust-musl-builder:latest AS builder
+# Set environment variables for static linking
+ENV OPENSSL_STATIC=1
+ENV OPENSSL_DIR=/usr
+ENV PKG_CONFIG_ALLOW_CROSS=1
 
+# Set the working directory
+WORKDIR /usr/src/app
+
+# Copy the project files into the container
 COPY . .
 
-RUN cargo build --release --target x86_64-unknown-linux-musl
+# Add the musl target and build the project in release mode
+RUN rustup target add x86_64-unknown-linux-musl && \
+    cargo build --release --target x86_64-unknown-linux-musl
 
-# working directory of the builder image must be considered (/home/rust/src)
-# check the source for more info
+# Use a scratch image for the final, minimal container
 FROM scratch
-COPY --from=builder /home/rust/src/target/x86_64-unknown-linux-musl/release/airline_manager4 /bin/airline_manager4
-COPY --from=alpine /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/src/app/target/x86_64-unknown-linux-musl/release/airline_manager4 /bin/airline_manager4
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
+# Set the command to run the application
 CMD ["/bin/airline_manager4"]
